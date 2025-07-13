@@ -1,0 +1,30 @@
+{
+  "neighborhood": {
+    "neighbors_exe": "weighted_topology_neighbors",
+    "neighbor_distance": 10.0,
+    "params": {
+      "x_formation": [
+        -5.0,  0.0,  5.0,
+        -5.0,  0.0,  5.0,
+        -5.0,  0.0,  5.0
+      ],
+      "y_formation": [
+         5.0,  5.0,  5.0,
+         0.0,  0.0,  0.0,
+        -5.0, -5.0, -5.0
+      ],
+      "z_formation": [
+        -1.5, -1.5, -1.5,
+        -1.5, -1.5, -1.5,
+        -1.5, -1.5, -1.5
+      ]
+    }
+  },
+  "controller": {
+    "controller_exe": "weighted_topology_controller",
+    "leader_follower": true,
+    "params": {
+      "gains": [1.0, 0.0, 0.0, 2.5, 0.0, 0.0, 2.75, 0.1, 0.001]
+    }
+  }
+}

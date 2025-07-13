@@ -1,0 +1,77 @@
+{
+  "swarm": {
+    "1": {
+      "model": "iris",
+      "initial_pose": {
+        "x": 2.0,
+        "y": 0.0
+      },
+      "is_leader": true
+    },
+    "2": {
+      "model": "iris",
+      "initial_pose": {
+        "x": 4.0,
+        "y": 0.0
+      },
+      "is_leader": false
+    },
+    "3": {
+      "model": "iris",
+      "initial_pose": {
+        "x": 6.0,
+        "y": 0.0
+      },
+      "is_leader": false
+    },
+    "4": {
+      "model": "iris",
+      "initial_pose": {
+        "x": 8.0,
+        "y": 0.0
+      },
+      "is_leader": false
+    },
+    "5": {
+      "model": "iris",
+      "initial_pose": {
+        "x": 10.0,
+        "y": 0.0
+      },
+      "is_leader": false
+    },
+    "6": {
+      "model": "iris",
+      "initial_pose": {
+        "x": 12.0,
+        "y": 0.0
+      },
+      "is_leader": false
+    },
+    "7": {
+      "model": "iris",
+      "initial_pose": {
+        "x": 14.0,
+        "y": 0.0
+      },
+      "is_leader": false
+    },
+    "8": {
+      "model": "iris",
+      "initial_pose": {
+        "x": 16.0,
+        "y": 0.0
+      },
+      "is_leader": false
+    },
+    "9": {
+      "model": "iris",
+      "initial_pose": {
+        "x": 18.0,
+        "y": 0.0
+      },
+      "is_leader": false
+    }
+  },
+  "trajectory": "waypoints_triangle.yaml"
+}

@@ -1,0 +1,19 @@
+threshold: 0.1
+threshold_angle: 0.4
+# Coordinates are in the North-East-Down frame x -> y and y -> x
+wp:
+  /px4_1:
+    # Vertex 1: Start point
+    - { x: 5, y: 5, z: -5, yaw: 0 }  # Drone starts at (5, 5, -5), facing East (yaw = 0)
+
+    # Vertex 2: Move to the right side of the square
+    - { x: 5, y: -5, z: -5, yaw: 0 }  # Drone moves to (5, -5, -5), still facing East
+
+    # Vertex 3: Move to the bottom-right corner of the square
+    - { x: -5, y: -5, z: -5, yaw: 0 }  # Drone moves to (-5, -5, -5), still facing East
+
+    # Vertex 4: Move to the bottom-left corner of the square
+    - { x: -5, y: 5, z: -5, yaw: 0 }  # Drone moves to (-5, 5, -5), still facing East
+
+    # Return to start point to complete the square
+    - { x: 5, y: 5, z: -5, yaw: 0 }  # Drone returns to (5, 5, -5), still facing East

@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>px4_swarm_controller</name>
+  <version>0.0.0</version>
+  <description>Swarm controller using the PX4 firmware</description>
+  <maintainer email="arthur.astier37@gmail.com">aastier</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+  <buildtool_depend>ament_cmake_cpp</buildtool_depend> <!-- برای اطمینان از پشتیبانی صحیح C++ -->
+
+  <depend>rclcpp</depend>
+  <depend>rclpy</depend>
+  <depend>px4_msgs</depend>
+  <depend>custom_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>pluginlib</depend> <!-- اضافه شدن: برای Export کردن کامپوننت‌ها -->
+  <depend>yaml-cpp</depend> <!-- اضافه شدن: اگر مستقیماً در SwarmAgent استفاده می‌شود -->
+  <!-- <depend>eigen3</depend>  --> <!-- اضافه شدن: Eigen3 معمولاً یک depend build نیست، اما اگر مشکل دارید، می‌توانید اضافه کنید -->
+
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <!-- اضافه شدن: بلوک pluginlib_export_plugin_description برای ثبت کامپوننت -->
+    <pluginlib_export_plugin_description>
+      <!-- مسیر به کتابخانه کامپایل شده شما (که در CMakeLists.txt به عنوان `px4_swarm_controller_component` تعریف می‌شود) -->
+      <library path="${prefix}/lib/libpx4_swarm_controller_component.so">
+        <!-- تعریف کلاس کامپوننت -->
+        <class name="Controller::SwarmAgent"
+               type="Controller::SwarmAgent"
+               base_class_type="rclcpp::Node">
+          <!-- توضیحات اختیاری برای کامپوننت -->
+          <description>A ROS 2 component for swarm agent control.</description>
+        </class>
+      </library>
+    </pluginlib_export_plugin_description>
+  </export>
+</package>
