@@ -16,6 +16,7 @@
   <depend>px4_msgs</depend>
   <depend>custom_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend> <!-- ADDED: Dependency for standard ROS services like Trigger -->
   <depend>pluginlib</depend> <!-- اضافه شدن: برای Export کردن کامپوننت‌ها -->
   <depend>yaml-cpp</depend> <!-- اضافه شدن: اگر مستقیماً در SwarmAgent استفاده می‌شود -->
   <!-- <depend>eigen3</depend>  --> <!-- اضافه شدن: Eigen3 معمولاً یک depend build نیست، اما اگر مشکل دارید، می‌توانید اضافه کنید -->

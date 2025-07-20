@@ -16,6 +16,7 @@ find_package(std_msgs REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(custom_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(std_srvs REQUIRED) # ADDED: Find the std_srvs package
 
 # Include headers
 include_directories(
@@ -60,6 +61,7 @@ ament_target_dependencies(leader_monitor
   rclcpp
   px4_msgs
   std_msgs
+  std_srvs # ADDED: Link std_srvs to leader_monitor
 )
 
 # ───── SwarmAgent Shared Library as Component ─────

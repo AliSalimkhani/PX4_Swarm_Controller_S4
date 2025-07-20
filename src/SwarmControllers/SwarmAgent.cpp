@@ -10,10 +10,10 @@ namespace Controller {
 
 SwarmAgent::SwarmAgent(const rclcpp::NodeOptions &options)
 : Node("swarm_agent", options),
-  reliable_qos_(rclcpp::QoSInitialization(rmw_qos_profile_default.history, rmw_qos_profile_default.depth), rmw_qos_profile_default),
-  sensor_qos_(rclcpp::QoSInitialization(rmw_qos_profile_sensor_data.history, 10), rmw_qos_profile_sensor_data),
   leader_initialized_(false),
-  initial_takeoff_complete_(false)
+  initial_takeoff_complete_(false),
+  reliable_qos_(rclcpp::QoSInitialization(rmw_qos_profile_default.history, rmw_qos_profile_default.depth), rmw_qos_profile_default),
+  sensor_qos_(rclcpp::QoSInitialization(rmw_qos_profile_sensor_data.history, 10), rmw_qos_profile_sensor_data)
 {
     const std::string name_space{this->get_namespace()};
 
@@ -67,6 +67,8 @@ SwarmAgent::SwarmAgent(const rclcpp::NodeOptions &options)
     this->get_parameter("x_formation", x_formation_);
     this->get_parameter("y_formation", y_formation_);
     this->get_parameter("z_formation", z_formation_);
+    this->get_parameter("x_init", x_init_);
+    this->get_parameter("y_init", y_init_);
     
     std::vector<double> gains_val;
     this->get_parameter("gains", gains_val);
@@ -139,30 +141,10 @@ void SwarmAgent::leader_id_callback(const std_msgs::msg::Int32::SharedPtr msg) {
             current_leader_id_ = my_id_;
 
             leader_initialized_ = false;
-            initial_takeoff_complete_ = true; // لیدر جدید نیازی به برخاست اولیه ندارد
+            initial_takeoff_complete_ = true; // A new leader doesn't need to do the initial takeoff sequence.
 
-            if (pose_received_ && leader_pose_received_ && static_cast<size_t>(my_id_) < x_formation_.size() && !waypoints_config_.IsNull()) {
-                // استفاده از موقعیت لیدر قبلی برای حفظ تداوم آرایش
-                double actual_center_north = leader_actual_position_.x - x_formation_[my_id_];
-                double actual_center_east  = leader_actual_position_.y - y_formation_[my_id_];
-                double actual_center_down  = leader_actual_position_.z - z_formation_[my_id_];
-
-                double ideal_center_north = coord(wp_idx_, "y");
-                double ideal_center_east  = coord(wp_idx_, "x");
-                double ideal_center_down  = coord(wp_idx_, "z");
-
-                formation_recenter_offset_x_ = actual_center_east - ideal_center_east;
-                formation_recenter_offset_y_ = actual_center_north - ideal_center_north;
-                formation_recenter_offset_z_ = 0.0;
-
-                RCLCPP_INFO(this->get_logger(), "New Leader (%d) calculated mission recenter offset based on previous leader: E:%.2f, N:%.2f, D:%.2f",
-                            my_id_ + 1, formation_recenter_offset_x_, formation_recenter_offset_y_, formation_recenter_offset_z_);
-            } else {
-                RCLCPP_WARN(this->get_logger(), "Cannot calculate smooth transition offset: Missing pose, leader pose, formation, or waypoint data.");
-                formation_recenter_offset_x_ = 0.0;
-                formation_recenter_offset_y_ = 0.0;
-                formation_recenter_offset_z_ = 0.0;
-            }
+            // No longer need to calculate a recentering offset.
+            // The leader will now publish its position relative to the formation center.
 
             if (leader_actual_position_subscriber_) leader_actual_position_subscriber_.reset();
             
@@ -183,7 +165,30 @@ void SwarmAgent::leader_id_callback(const std_msgs::msg::Int32::SharedPtr msg) {
 void SwarmAgent::pose_subscriber_callback(const VehicleLocalPosition::SharedPtr msg) {
     my_current_pose_ = *msg;
     pose_received_ = true;
-    self_position_publisher_->publish(my_current_pose_);
+
+    // If this drone is the leader, it must publish its position as the formation center.
+    // It does this by subtracting its own formation offset from its actual position.
+    // Followers will then add their own offset to this broadcasted center point.
+    if (current_state_ == DroneState::LEADER) {
+        VehicleLocalPosition formation_center_pose = my_current_pose_;
+        float offset_n = 0.0f, offset_e = 0.0f, offset_d = 0.0f;
+
+        if (my_id_ >= 0 && static_cast<size_t>(my_id_) < x_formation_.size()) {
+            offset_n = static_cast<float>(x_formation_[my_id_]);
+            offset_e = static_cast<float>(y_formation_[my_id_]);
+            offset_d = static_cast<float>(z_formation_[my_id_]);
+        }
+        
+        formation_center_pose.x -= offset_n; // North
+        formation_center_pose.y -= offset_e; // East
+        formation_center_pose.z -= offset_d; // Down
+
+        self_position_publisher_->publish(formation_center_pose);
+    } else {
+        // Followers publish their true position. This is mainly for the LeaderMonitor
+        // and doesn't affect the swarm formation logic itself.
+        self_position_publisher_->publish(my_current_pose_);
+    }
 }
 
 void SwarmAgent::waypoint_idx_callback(const std_msgs::msg::Int32::SharedPtr msg) {
@@ -206,11 +211,12 @@ void SwarmAgent::leader_logic() {
         RCLCPP_INFO(this->get_logger(), "Leader %d setting initial waypoint to index %zu.", my_id_ + 1, wp_idx_);
     }
 
-    // حالت برخاست اولیه فقط برای لیدر اولیه
+    // Initial takeoff sequence for the original leader
     if (!initial_takeoff_complete_ && pose_received_) {
         TrajectorySetpoint takeoff_setpoint{};
         takeoff_setpoint.timestamp = this->get_clock()->now().nanoseconds() / 1000;
-        takeoff_setpoint.position = {my_current_pose_.x, my_current_pose_.y, -1.0}; // برخاست به ارتفاع 1 متر
+        // Take off to 1m above spawn Z (which is 0) in global frame
+        takeoff_setpoint.position = {my_current_pose_.x, my_current_pose_.y, -1.0}; 
         takeoff_setpoint.yaw = 0.0;
 
         double dist = std::hypot(my_current_pose_.x - takeoff_setpoint.position[0],
@@ -223,12 +229,6 @@ void SwarmAgent::leader_logic() {
         }
 
         publish_offboard_control_mode(CONTROL::POSITION);
-        RCLCPP_INFO(this->get_logger(), 
-            "Publishing initial takeoff setpoint: [%.2f, %.2f, %.2f], yaw: %.2f", 
-            takeoff_setpoint.position[0], 
-            takeoff_setpoint.position[1], 
-            takeoff_setpoint.position[2], 
-            takeoff_setpoint.yaw);
         trajectory_setpoint_publisher_->publish(takeoff_setpoint);
         return;
     }
@@ -248,16 +248,10 @@ void SwarmAgent::leader_logic() {
             wp_msg.data = wp_idx_;
             waypoint_idx_pub_->publish(wp_msg);
         }
-    }
 
-    publish_offboard_control_mode(CONTROL::POSITION);
-    RCLCPP_INFO(this->get_logger(), 
-        "Publishing waypoint: [%.2f, %.2f, %.2f], yaw: %.2f", 
-        leader_waypoint_.position[0], 
-        leader_waypoint_.position[1], 
-        leader_waypoint_.position[2], 
-        leader_waypoint_.yaw);
-    trajectory_setpoint_publisher_->publish(leader_waypoint_);
+        publish_offboard_control_mode(CONTROL::POSITION);
+        trajectory_setpoint_publisher_->publish(leader_waypoint_);
+    }
 }
 
 void SwarmAgent::writeWP(const size_t idx) {
@@ -269,10 +263,18 @@ void SwarmAgent::writeWP(const size_t idx) {
     
     leader_waypoint_.timestamp = this->get_clock()->now().nanoseconds() / 1000;
 
+    // The leader's target waypoint is the base waypoint plus its own formation offset.
+    float offset_n = 0.0f, offset_e = 0.0f, offset_d = 0.0f;
+    if (my_id_ >= 0 && static_cast<size_t>(my_id_) < x_formation_.size()) {
+        offset_n = static_cast<float>(x_formation_[my_id_]);
+        offset_e = static_cast<float>(y_formation_[my_id_]);
+        offset_d = static_cast<float>(z_formation_[my_id_]);
+    }
+
     leader_waypoint_.position = {
-        static_cast<float>(coord(idx, "y") + formation_recenter_offset_y_), // North
-        static_cast<float>(coord(idx, "x") + formation_recenter_offset_x_), // East
-        static_cast<float>(coord(idx, "z") + formation_recenter_offset_z_)  // Down
+        static_cast<float>(coord(idx, "y") + offset_n), // North
+        static_cast<float>(coord(idx, "x") + offset_e), // East
+        static_cast<float>(coord(idx, "z") + offset_d)  // Down
     };
     
     leader_waypoint_.yaw = static_cast<float>(coord(idx, "yaw"));
@@ -311,9 +313,8 @@ void SwarmAgent::follower_logic() {
     } else {
         publish_offboard_control_mode(CONTROL::POSITION);
         setpoint.position = {my_current_pose_.x, my_current_pose_.y, my_current_pose_.z};
-        setpoint.yaw = my_current_pose_.heading; // حفظ جهت‌گیری فعلی
-        RCLCPP_INFO(this->get_logger(), "Follower %d holding position due to missing leader pose: [%.2f, %.2f, %.2f], yaw: %.2f",
-                    my_id_ + 1, setpoint.position[0], setpoint.position[1], setpoint.position[2], setpoint.yaw);
+        setpoint.yaw = my_current_pose_.heading; // Keep current orientation
+        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Follower %d holding position due to missing leader pose.", my_id_ + 1);
     }
 
     trajectory_setpoint_publisher_->publish(setpoint);

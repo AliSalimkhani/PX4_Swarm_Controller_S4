@@ -68,12 +68,9 @@
                                                                           const VehicleLocalPosition &position,
                                                                           VehicleLocalPosition neighbor_position,
                                                                           WeightedTopologyNeighborsMsg &neighborhood) {
-     neighbor_position.x = position.x - neighbor_position.x -
-                           static_cast<float>(formation[drone_idx].x() - formation[neighbor_idx].x());
-     neighbor_position.y = position.y - neighbor_position.y -
-                           static_cast<float>(formation[drone_idx].y() - formation[neighbor_idx].y());
-     neighbor_position.z = position.z - neighbor_position.z -
-                           static_cast<float>(formation[drone_idx].z() - formation[neighbor_idx].z());
+     neighbor_position.x = position.x - neighbor_position.x - static_cast<float>(formation[drone_idx].x() - formation[neighbor_idx].x());
+     neighbor_position.y = position.y - neighbor_position.y - static_cast<float>(formation[drone_idx].y() - formation[neighbor_idx].y());
+     neighbor_position.z = position.z - neighbor_position.z - static_cast<float>(formation[drone_idx].z() - formation[neighbor_idx].z());
  
      neighbor_position.vx = position.vx - neighbor_position.vx;
      neighbor_position.vy = position.vy - neighbor_position.vy;

@@ -124,14 +124,7 @@ private:
     std::vector<double> z_formation_;
     // --- END ADDITIONS FOR FORMATION ---
 
-    // --- ADDITIONS FOR LEADER PROMOTION RECENTERING ---
-    // These offsets will be calculated when a new leader is promoted.
-    // They represent the shift needed to make the new leader's current location
-    // (minus its formation offset) become the effective origin for the mission path.
-    double formation_recenter_offset_x_{0.0};
-    double formation_recenter_offset_y_{0.0};
-    double formation_recenter_offset_z_{0.0};
-    // --- END ADDITIONS FOR LEADER PROMOTION RECENTERING ---
+    // --- END ADDITIONS FOR FORMATION ---
 };
 
 } // namespace Controller
