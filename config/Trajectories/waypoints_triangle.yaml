@@ -1,5 +1,5 @@
-threshold: 0.7
-threshold_angle: 0.7
+threshold: 1.0
+threshold_angle: 1.0
 wp:
   /px4_1:
     - { x: 0, y: 0, z: -5, yaw: 0 }
