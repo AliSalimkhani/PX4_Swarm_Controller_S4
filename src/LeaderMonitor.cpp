@@ -3,16 +3,26 @@
 // The main issue was using the message's internal timestamp (from the drone's clock)
 // instead of the reception time (from the ROS clock) to check for leader liveness.
 // This caused incorrect timeout calculations.
-// This version also adds a ROS2 service to allow external disarming of the current leader drone,
+// This version adds a ROS2 service to allow external disarming of the current leader drone,
 // and extends it to initiate a landing sequence and then transfer leadership.
+// The leader election logic is changed from random selection to selecting the closest
+// available drone to the old leader's last known position.
+// It now also handles ties by randomly selecting among drones that are equally closest.
+// Crucially, when 'disarm_leader' is called, the leader election uses the drone's position
+// at the moment the service was invoked as the reference point.
+// This version includes enhanced logging for leader election debugging.
 
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/int32.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
-#include <random> // For generating random numbers to select a new leader
+#include <random> // For generating random numbers
 #include <std_srvs/srv/trigger.hpp> // For the new disarm service
 #include <px4_msgs/srv/vehicle_command.hpp> // For sending vehicle commands (land, disarm)
 #include <px4_msgs/msg/vehicle_command.hpp> // For the VehicleCommand message type
+#include <limits> // For std::numeric_limits
+#include <cmath> // For std::hypot
+#include <vector> // For std::vector
+#include <algorithm> // For std::shuffle
 
 class LeaderMonitor : public rclcpp::Node {
 private:
@@ -22,13 +32,20 @@ private:
     std::vector<rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr> subs;
     std::vector<rclcpp::Time> last_msg_time;
     std::vector<int> leader_miss_count;
+    // Member variable to store the last known position of each drone
+    std::vector<px4_msgs::msg::VehicleLocalPosition> last_positions; 
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr leader_pub;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr waypoint_pub;
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr waypoint_sub;
     rclcpp::TimerBase::SharedPtr timer;
 
-    // New member variable for the disarm service
+    // Member variable for the disarm service
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr disarm_service_;
+
+    // Temporary variables to store the old leader's position when disarm service is called
+    // This ensures the reference point for election is fixed at the time of service invocation.
+    px4_msgs::msg::VehicleLocalPosition temp_old_leader_pos_for_election_;
+    bool use_temp_leader_pos_for_election_ = false;
 
 public:
     LeaderMonitor() : Node("leader_monitor") {
@@ -53,6 +70,8 @@ public:
         // Initialize last message times and miss counts for all drones
         last_msg_time.assign(nb_drones, this->now());
         leader_miss_count.assign(nb_drones, 0);
+        // Initialize the last_positions vector with the correct size
+        last_positions.resize(nb_drones); 
         current_leader_id = 0; // Start with drone 0 as the initial leader
 
         // Create subscriptions for each drone's local position
@@ -61,12 +80,8 @@ public:
             subs.push_back(this->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
                 topic, qos,
                 [this, i](px4_msgs::msg::VehicleLocalPosition::SharedPtr msg) {
-                    // --- FIX START ---
-                    // The original code used `rclcpp::Time(msg->timestamp * 1000)`, which is incorrect
-                    // because msg->timestamp is from the drone's internal clock, not the ROS clock.
-                    // We must use the time of message reception (`this->now()`) for accurate liveness checking.
                     last_msg_time[i] = this->now(); // Use ROS reception time for liveness
-                    // --- FIX END ---
+                    last_positions[i] = *msg; // Store the last received position
                     leader_miss_count[i] = 0; // Reset miss count on successful message reception
                     RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "LeaderMonitor: Received position from drone %d (via agent): x=%.2f, y=%.2f, z=%.2f",
                                 i + 1, msg->x, msg->y, msg->z);
@@ -140,15 +155,19 @@ private:
         }
     }
 
-    // Function to pick a new leader from available drones
+    // Function to pick a new leader from available drones based on proximity to a reference position.
+    // If multiple drones are equally closest, one is chosen randomly from that subset.
     int pick_new_leader() {
         std::vector<int> available_drones;
         double availability_timeout = 10.0; // Drones that sent a message within the last 10s are eligible
 
+        // Find all available drones (not the current leader and recently active)
         for (int i = 0; i < nb_drones; i++) {
-            // A drone is available if it's not the current leader and has sent a message recently
             if (i != current_leader_id && (this->now() - last_msg_time[i]).seconds() < availability_timeout) {
                 available_drones.push_back(i);
+            } else {
+                RCLCPP_INFO(this->get_logger(), "Drone %d is NOT available. Current leader: %d, Elapsed time: %.2f",
+                            i + 1, current_leader_id + 1, (this->now() - last_msg_time[i]).seconds());
             }
         }
 
@@ -157,11 +176,64 @@ private:
             return -1; // Indicate no suitable leader found
         }
 
-        // Randomly select a new leader from the available drones
+        std::vector<int> closest_candidates;
+        double min_distance = std::numeric_limits<double>::max(); // Initialize with a very large value
+
+        // Determine the reference position for distance calculation
+        const px4_msgs::msg::VehicleLocalPosition* reference_pos_ptr;
+        if (use_temp_leader_pos_for_election_) {
+            reference_pos_ptr = &temp_old_leader_pos_for_election_;
+            RCLCPP_INFO(this->get_logger(), "Using temporary old leader position for election: x=%.2f, y=%.2f, z=%.2f",
+                        reference_pos_ptr->x, reference_pos_ptr->y, reference_pos_ptr->z);
+            // Reset the flag immediately after using the temporary position
+            use_temp_leader_pos_for_election_ = false; 
+        } else {
+            // Default behavior: use the last known position of the current (failed) leader
+            reference_pos_ptr = &last_positions[current_leader_id];
+            RCLCPP_INFO(this->get_logger(), "Using current leader's last known position for election: x=%.2f, y=%.2f, z=%.2f",
+                        reference_pos_ptr->x, reference_pos_ptr->y, reference_pos_ptr->z);
+        }
+        const auto& old_leader_pos = *reference_pos_ptr;
+
+        // Iterate through available drones to find the closest one(s)
+        RCLCPP_INFO(this->get_logger(), "Evaluating %zu available candidates:", available_drones.size());
+        for (int id : available_drones) {
+            const auto& candidate_pos = last_positions[id];
+            // Calculate Euclidean distance in 3D space
+            double distance = std::hypot(candidate_pos.x - old_leader_pos.x,
+                                         candidate_pos.y - old_leader_pos.y,
+                                         candidate_pos.z - old_leader_pos.z);
+
+            RCLCPP_INFO(this->get_logger(), "  Candidate Drone %d (x=%.2f, y=%.2f, z=%.2f) distance to old leader: %.2f",
+                        id + 1, candidate_pos.x, candidate_pos.y, candidate_pos.z, distance);
+
+            // If a new minimum distance is found, clear previous candidates and add this one
+            if (distance < min_distance) { 
+                min_distance = distance;
+                closest_candidates.clear(); // Clear previous candidates as a new minimum is found
+                closest_candidates.push_back(id);
+            } 
+            // If the distance is equal to the current minimum, add this drone as another candidate
+            else if (distance == min_distance) {
+                closest_candidates.push_back(id);
+            }
+        }
+
+        // If no candidates found (shouldn't happen if available_drones is not empty, but for safety)
+        if (closest_candidates.empty()) {
+            RCLCPP_ERROR(this->get_logger(), "No closest candidates found despite available drones. This indicates a logic error.");
+            return -1;
+        }
+
+        // Randomly select one leader from the closest candidates
         std::random_device rd;
         std::mt19937 gen(rd());
-        std::uniform_int_distribution<> dis(0, available_drones.size() - 1);
-        return available_drones[dis(gen)];
+        std::uniform_int_distribution<> dis(0, closest_candidates.size() - 1);
+        int new_leader = closest_candidates[dis(gen)];
+
+        RCLCPP_INFO(this->get_logger(), "Selected new leader %d based on closest proximity (distance: %.2f) to old leader %d. Chosen from %zu candidates.",
+                    new_leader + 1, min_distance, current_leader_id + 1, closest_candidates.size());
+        return new_leader;
     }
 
     // Callback function for the /disarm_leader service
@@ -171,14 +243,33 @@ private:
         (void)request; // Suppress unused parameter warning
         RCLCPP_WARN(this->get_logger(), "Disarm service called for leader %d. Initiating land and leader transfer.", current_leader_id + 1);
 
+        // Store the ID of the current leader before forcing the transfer
+        int old_leader_id = current_leader_id;
+
+        // NEW: Capture the old leader's position at the moment the service is invoked
+        // This position will be used as the reference for electing the new leader.
+        // Ensure last_positions[old_leader_id] is valid before accessing
+        if (old_leader_id >= 0 && old_leader_id < nb_drones) {
+            temp_old_leader_pos_for_election_ = last_positions[old_leader_id];
+            use_temp_leader_pos_for_election_ = true; // Activate the flag to use this temporary position
+        } else {
+            RCLCPP_ERROR(this->get_logger(), "Invalid old_leader_id %d for capturing position.", old_leader_id);
+            response->success = false;
+            response->message = "Invalid leader ID. Cannot initiate land and transfer.";
+            return;
+        }
+
+
         // 1. Send LAND command to the current leader
-        std::string service_name = "/px4_" + std::to_string(current_leader_id + 1) + "/fmu/vehicle_command";
+        std::string service_name = "/px4_" + std::to_string(old_leader_id + 1) + "/fmu/vehicle_command";
         auto client = this->create_client<px4_msgs::srv::VehicleCommand>(service_name);
 
         if (!client->wait_for_service(std::chrono::seconds(1))) {
-            RCLCPP_ERROR(this->get_logger(), "Vehicle command service for drone %d not available. Cannot send LAND command.", current_leader_id + 1);
+            RCLCPP_ERROR(this->get_logger(), "Vehicle command service for drone %d not available. Cannot send LAND command.", old_leader_id + 1);
             response->success = false;
-            response->message = "Vehicle command service not available for leader " + std::to_string(current_leader_id + 1) + ". Cannot land.";
+            response->message = "Vehicle command service not available for leader " + std::to_string(old_leader_id + 1) + ". Cannot land.";
+            // IMPORTANT: If service is not available, reset the flag to prevent using stale temp data later.
+            use_temp_leader_pos_for_election_ = false; 
             return;
         }
 
@@ -200,7 +291,7 @@ private:
 
         // Send the LAND command asynchronously
         client->async_send_request(land_request);
-        RCLCPP_INFO(this->get_logger(), "LAND command sent to current leader drone %d.", current_leader_id + 1);
+        RCLCPP_INFO(this->get_logger(), "LAND command sent to current leader drone %d.", old_leader_id + 1);
 
         // Optional: Add a delay to allow the drone to start landing before potentially disarming or changing leader.
         // NOTE: This is a blocking delay. For real-time critical systems,
@@ -209,9 +300,6 @@ private:
         rclcpp::sleep_for(std::chrono::seconds(5)); // Wait 5 seconds for landing to begin
 
         // 2. Re-trigger leader election logic to transfer leadership
-        // Store the ID of the current leader before forcing the transfer
-        int old_leader_id = current_leader_id;
-
         // Force trigger leader loss for the old leader
         leader_miss_count[old_leader_id] = 3; 
         this->check_leader_alive(); // This will detect the "lost" leader and pick a new one
@@ -219,16 +307,10 @@ private:
         // 3. Send DISARM command to the *original* leader (old_leader_id)
         //    This ensures the drone that was just the leader explicitly disarms.
         //    We need to create a new client for the old leader if the current_leader_id has changed.
-        std::string old_leader_service_name = "/px4_" + std::to_string(old_leader_id + 1) + "/fmu/vehicle_command";
-        auto old_leader_client = this->create_client<px4_msgs::srv::VehicleCommand>(old_leader_service_name);
-
-        if (!old_leader_client->wait_for_service(std::chrono::seconds(1))) {
-            RCLCPP_ERROR(this->get_logger(), "Vehicle command service for old leader drone %d not available. Cannot send DISARM command.", old_leader_id + 1);
-            response->success = false;
-            response->message = "Vehicle command service not available for old leader " + std::to_string(old_leader_id + 1) + ". Cannot disarm.";
-            return;
-        }
-
+        //    Using the same 'client' object as it's still valid for the same drone ID.
+        //    If 'old_leader_id' is different from 'current_leader_id' after check_leader_alive(),
+        //    then 'client' is still pointing to the old leader's service.
+        
         auto disarm_request = std::make_shared<px4_msgs::srv::VehicleCommand::Request>();
         disarm_request->request.command = VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM;
         disarm_request->request.param1 = 0.0f; // 0.0f means DISARM
@@ -237,7 +319,7 @@ private:
         disarm_request->request.from_external = true;
         disarm_request->request.timestamp = this->get_clock()->now().nanoseconds() / 1000;
         
-        old_leader_client->async_send_request(disarm_request); 
+        client->async_send_request(disarm_request); 
         RCLCPP_INFO(this->get_logger(), "Explicit DISARM command sent to old leader drone %d.", old_leader_id + 1);
 
         // Response reflects the initiation of the process, not necessarily its completion

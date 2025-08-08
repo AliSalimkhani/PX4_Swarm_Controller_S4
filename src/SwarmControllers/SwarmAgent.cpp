@@ -174,8 +174,9 @@ void SwarmAgent::pose_subscriber_callback(const VehicleLocalPosition::SharedPtr 
         float offset_n = 0.0f, offset_e = 0.0f, offset_d = 0.0f;
 
         if (my_id_ >= 0 && static_cast<size_t>(my_id_) < x_formation_.size()) {
-            offset_n = static_cast<float>(x_formation_[my_id_]);
-            offset_e = static_cast<float>(y_formation_[my_id_]);
+            // FIX: Make mapping consistent
+            offset_e = static_cast<float>(x_formation_[my_id_]); // Correct: x_formation -> East
+            offset_n = static_cast<float>(y_formation_[my_id_]); // Correct: y_formation -> North
             offset_d = static_cast<float>(z_formation_[my_id_]);
         }
         
@@ -204,6 +205,11 @@ void SwarmAgent::leader_logic() {
         return;
     }
 
+    if (!pose_received_) {
+        RCLCPP_WARN(this->get_logger(), "Pose not yet received for Leader %d", my_id_ + 1);
+        return;
+    }
+
     if (!leader_initialized_) {
         RCLCPP_INFO(this->get_logger(), "Leader %d initializing: writing waypoint index %zu", my_id_ + 1, wp_idx_);
         writeWP(wp_idx_);
@@ -215,13 +221,23 @@ void SwarmAgent::leader_logic() {
     if (!initial_takeoff_complete_ && pose_received_) {
         TrajectorySetpoint takeoff_setpoint{};
         takeoff_setpoint.timestamp = this->get_clock()->now().nanoseconds() / 1000;
-        // Take off to 1m above spawn Z (which is 0) in global frame
-        takeoff_setpoint.position = {my_current_pose_.x, my_current_pose_.y, -1.0}; 
+
+        // FIX #2: Takeoff target is now relative to the current position's Z value,
+        // which makes it robust against variations in the initial spawning height.
+        takeoff_setpoint.position = {my_current_pose_.x, my_current_pose_.y, my_current_pose_.z - 1.0f}; 
         takeoff_setpoint.yaw = 0.0;
+
+        RCLCPP_INFO(this->get_logger(), "Leader %d initial pose: x=%.2f, y=%.2f, z=%.2f", 
+                    my_id_ + 1, my_current_pose_.x, my_current_pose_.y, my_current_pose_.z);
+
+        RCLCPP_INFO(this->get_logger(), "Leader %d takeoff setpoint: x=%.2f, y=%.2f, z=%.2f", 
+                    my_id_ + 1, takeoff_setpoint.position[0], takeoff_setpoint.position[1], takeoff_setpoint.position[2]);
 
         double dist = std::hypot(my_current_pose_.x - takeoff_setpoint.position[0],
                                  my_current_pose_.y - takeoff_setpoint.position[1],
                                  my_current_pose_.z - takeoff_setpoint.position[2]);
+
+        RCLCPP_INFO(this->get_logger(), "Leader %d takeoff distance: %.2f", my_id_ + 1, dist);
 
         if (dist < wp_threshold_) {
             initial_takeoff_complete_ = true;
@@ -237,13 +253,20 @@ void SwarmAgent::leader_logic() {
         double dist = std::hypot(my_current_pose_.x - leader_waypoint_.position[0],
                                  my_current_pose_.y - leader_waypoint_.position[1],
                                  my_current_pose_.z - leader_waypoint_.position[2]);
+
         double yaw_dist = std::abs(std::fmod(my_current_pose_.heading - leader_waypoint_.yaw + M_PI, 2 * M_PI) - M_PI);
+
+        RCLCPP_INFO(this->get_logger(), "Leader %d distance to waypoint: %.2f, yaw diff: %.2f",
+                    my_id_ + 1, dist, yaw_dist);
 
         if (dist < wp_threshold_ && yaw_dist < wp_threshold_angle_) {
             wp_idx_++;
-            if (wp_idx_ >= waypoints_config_["wp"][std::string("/px4_1")].size()) wp_idx_ = 0;
+            size_t wp_size = waypoints_config_["wp"][std::string("/px4_1")].size();
+            if (wp_idx_ >= wp_size) wp_idx_ = 0;
+
             RCLCPP_INFO(this->get_logger(), "Leader %d reached waypoint, moving to index %zu", my_id_ + 1, wp_idx_);
             writeWP(wp_idx_);
+
             std_msgs::msg::Int32 wp_msg;
             wp_msg.data = wp_idx_;
             waypoint_idx_pub_->publish(wp_msg);
@@ -254,20 +277,15 @@ void SwarmAgent::leader_logic() {
     }
 }
 
-void SwarmAgent::writeWP(const size_t idx) {
-    const std::string mission_path = "/px4_1";
-    if (waypoints_config_.IsNull() || !waypoints_config_["wp"][mission_path] || idx >= waypoints_config_["wp"][mission_path].size()){
-        RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "Waypoint index %zu is out of bounds.", idx);
-        return;
-    }
-    
-    leader_waypoint_.timestamp = this->get_clock()->now().nanoseconds() / 1000;
 
-    // The leader's target waypoint is the base waypoint plus its own formation offset.
+// In SwarmAgent::writeWP
+void SwarmAgent::writeWP(const size_t idx) {
+    // ... (previous code) ...
     float offset_n = 0.0f, offset_e = 0.0f, offset_d = 0.0f;
     if (my_id_ >= 0 && static_cast<size_t>(my_id_) < x_formation_.size()) {
-        offset_n = static_cast<float>(x_formation_[my_id_]);
-        offset_e = static_cast<float>(y_formation_[my_id_]);
+        // FIX: Make mapping consistent
+        offset_e = static_cast<float>(x_formation_[my_id_]); // Correct: x_formation -> East
+        offset_n = static_cast<float>(y_formation_[my_id_]); // Correct: y_formation -> North
         offset_d = static_cast<float>(z_formation_[my_id_]);
     }
 
@@ -276,7 +294,6 @@ void SwarmAgent::writeWP(const size_t idx) {
         static_cast<float>(coord(idx, "x") + offset_e), // East
         static_cast<float>(coord(idx, "z") + offset_d)  // Down
     };
-    
     leader_waypoint_.yaw = static_cast<float>(coord(idx, "yaw"));
 }
 
@@ -298,15 +315,15 @@ void SwarmAgent::follower_logic() {
 
         float offset_n = 0.0f, offset_e = 0.0f, offset_d = 0.0f;
         if (my_id_ >= 0 && static_cast<size_t>(my_id_) < x_formation_.size()) {
-            offset_n = static_cast<float>(x_formation_[my_id_]);
-            offset_e = static_cast<float>(y_formation_[my_id_]);
+            offset_e = static_cast<float>(x_formation_[my_id_]);
+            offset_n = static_cast<float>(y_formation_[my_id_]);
             offset_d = static_cast<float>(z_formation_[my_id_]);
         }
         
         setpoint.position = {
-            leader_actual_position_.x + offset_n,
-            leader_actual_position_.y + offset_e,
-            leader_actual_position_.z + offset_d
+            leader_actual_position_.x + 0.0,
+            leader_actual_position_.y + 0.0,
+            leader_actual_position_.z + offset_d + -2.0
         };
         setpoint.yaw = leader_actual_position_.heading;
         
