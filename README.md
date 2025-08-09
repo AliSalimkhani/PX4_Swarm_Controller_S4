@@ -100,3 +100,16 @@ ros2 launch px4_swarm_controller launch_simulation.py
 
 سپس با اجرای فایل ```runkon4.bsh/.``` تمام فایل ها اجرا خواهند شد.
 
+##نحوه اجرای ```disarm```:
+
+این پروژه به دو نحو این سناریو را پیاده سازی کرده.
+
+۱- با دستور ```disarm```:
+
+```shell
+cd your/path/S4
+source install/setup.bash
+ros2 service call /disarm_leader std_srvs/srv/Trigger
+```
+
+۲- با حذف فیزیکی پهپاد در شبیه ساز
