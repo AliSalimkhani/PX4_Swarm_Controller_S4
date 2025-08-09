@@ -1,15 +1,18 @@
 # سناریوی چهارم
+### نحوه نصب و نیازمندی ها
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+نیازمندی های اصلی:
 
+ ```ROS2 humblle```
+ 
+ ```Ubuntu 22.04```
+ 
+```Gazebo multi-robot simulator, version 11.10.2```
 
-## نحوه نصب و نیازمندی ها
+```PX4 Autopilot```
 
-### ROS2 humblle
-## Ubuntu 22.04
-## Gazebo multi-robot simulator, version 11.10.2
-## PX4
-
+نیازمندی های اولیه:
+---
 ```shell
 sudo apt update && sudo apt install locales
 sudo locale-gen en_US en_US.UTF-8
@@ -26,7 +29,7 @@ sudo apt install ros-dev-tools
 ```
 
 
-از نصب بودن ```gazebo```  نیز اطمینان حاصل کنید.[لینک](https://classic.gazebosim.org/tutorials?tut=install_ubuntu).
+همچنین از نصب بودن ```gazebo```  نیز اطمینان حاصل کنید.[لینک](https://classic.gazebosim.org/tutorials?tut=install_ubuntu).
 
 
 ### نحوه نصب PX4 Autopilot
@@ -51,13 +54,13 @@ sudo make install
 sudo ldconfig /usr/local/lib/
 ```
 
-### ساخت (build) و ساخت محیط کار (workspace)
+### ساخت محیط کار (workspace)
 
     ```shell
     cd
     mkdir -p ros2_ws/src/S4
     ```
-- سپس این ریپوزیتوری رو کلون کنید توی  ```ros2_ws/src``` و استمش رو به ```px4_swarm_controller``` تغییر بدید.
+- سپس این ریپازیتوری رو در  ```ros2_ws/src``` کلون کنبد و استمش رو به ```px4_swarm_controller``` تغییر بدهید.
   ```shell
   cd ros2_ws/src
   git clone https://github.com/artastier/PX4_Swarm_Controller.git
@@ -91,5 +94,5 @@ colcon build
 source /your/path/ros2_ws/S4/install/setup.bash
 ros2 launch px4_swarm_controller launch_simulation.py
 ```
--سپس با اجرای فایل ``` ./runkon4.bsh``` تمام فایل ها اجرا خواهند شد.
+-سپس با اجرای فایل ```runkon4.bsh/.``` تمام فایل ها اجرا خواهند شد.
 
