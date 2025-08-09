@@ -90,6 +90,7 @@ sudo ldconfig /usr/local/lib/
 ```shell
 cd ~
 nano runkon4.bash
+# کد پایین را در فایل bash پیست کنید.
 cd /your/path/ros2_ws/S4
 colcon build
 source /your/path/ros2_ws/S4/install/setup.bash
