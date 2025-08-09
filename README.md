@@ -102,6 +102,7 @@ ros2 launch px4_swarm_controller launch_simulation.py
 
 
 تعداد پهپادها و نقاط اولیه آنها و فرمیشن پهپادها از فایل ```config/swarm_config.json``` تنظیم میشوند.
+
 نکته: در این پروژه فرمیشن پهپادها همان نقاط اولیه خواهد بود.
 
 ## نحوه اجرای ```disarm```:
