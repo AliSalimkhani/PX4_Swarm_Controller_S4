@@ -56,10 +56,11 @@ sudo ldconfig /usr/local/lib/
 
 ### ساخت محیط کار (workspace)
 
-    ```shell
-    cd
+
+   ```shell
+    cd ~
     mkdir -p ros2_ws/src/S4
-    ```
+   ```
 - سپس این ریپازیتوری رو در  ```ros2_ws/src``` کلون کنبد و استمش رو به ```px4_swarm_controller``` تغییر بدهید.
   ```shell
   cd ros2_ws/src
@@ -94,5 +95,7 @@ colcon build
 source /your/path/ros2_ws/S4/install/setup.bash
 ros2 launch px4_swarm_controller launch_simulation.py
 ```
--سپس با اجرای فایل ```runkon4.bsh/.``` تمام فایل ها اجرا خواهند شد.
+از قابل اجرا بودن فایل با کامند ‍‍‍```chmod +x ~/runkon4.bash``` اطمینان حاصل کنید.
+
+سپس با اجرای فایل ```runkon4.bsh/.``` تمام فایل ها اجرا خواهند شد.
 
