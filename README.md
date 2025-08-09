@@ -2,13 +2,6 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-The aim of this repository is to provide a scalable multi-drone simulation for easy testing of control laws on fleets of
-UAVs. The default controller is based on a leader-follower approach taken from the
-paper [Distributed leader-follower formation control for
-multiple quadrotors with weighted topology (Zhicheng Hou, Isabelle Fantoni)](https://hal.science/hal-01180491/document).
-
-This project was carried out as part of the Research and Development professional option at Ecole Centrale de Nantes
-with my partner Martin Piernas.
 
 ## نحوه نصب و نیازمندی ها
 
