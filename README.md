@@ -100,7 +100,7 @@ ros2 launch px4_swarm_controller launch_simulation.py
 
 سپس با اجرای فایل ```runkon4.bsh/.``` تمام فایل ها اجرا خواهند شد.
 
-##نحوه اجرای ```disarm```:
+## نحوه اجرای ```disarm```:
 
 این پروژه به دو نحو این سناریو را پیاده سازی کرده.
 
