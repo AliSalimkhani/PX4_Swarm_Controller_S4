@@ -67,7 +67,7 @@ sudo ldconfig /usr/local/lib/
   git clone https://github.com/AliSalimkhani/PX4_Swarm_Controller_S4.git
   mv PX4_Swarm_Controller_S4 px4_swarm_controller
   ```
-- سپس ```overwrite```  کتیذ.
+- سپس ```overwrite```  کنید.
   ```shell
   mv -i px4_swarm_controller/sitl_multiple_run.sh ~/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_multiple_run.sh
   ```
