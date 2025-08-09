@@ -1,10 +1,11 @@
 #include "SwarmControllers/SwarmAgent.hpp"
-#include <ament_index_cpp/get_package_share_directory.hpp>  
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <iostream>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <vector>
 #include <string>
+#include <yaml-cpp/yaml.h>
 
 namespace Controller {
 
@@ -69,7 +70,7 @@ SwarmAgent::SwarmAgent(const rclcpp::NodeOptions &options)
     this->get_parameter("z_formation", z_formation_);
     this->get_parameter("x_init", x_init_);
     this->get_parameter("y_init", y_init_);
-    
+
     std::vector<double> gains_val;
     this->get_parameter("gains", gains_val);
     if (gains_val.size() >= 9) {
@@ -90,7 +91,7 @@ SwarmAgent::SwarmAgent(const rclcpp::NodeOptions &options)
         current_state_ = DroneState::FOLLOWER;
         RCLCPP_INFO(this->get_logger(), "Drone %d starting as FOLLOWER.", my_id_ + 1);
     }
-    
+
     // --- Waypoints ---
     if (!wp_path_.empty()) {
         try {
@@ -147,7 +148,7 @@ void SwarmAgent::leader_id_callback(const std_msgs::msg::Int32::SharedPtr msg) {
             // The leader will now publish its position relative to the formation center.
 
             if (leader_actual_position_subscriber_) leader_actual_position_subscriber_.reset();
-            
+
             pid_ax_.reset_integral(); pid_ay_.reset_integral(); pid_az_.reset_integral();
         }
     } else {
@@ -174,15 +175,20 @@ void SwarmAgent::pose_subscriber_callback(const VehicleLocalPosition::SharedPtr 
         float offset_n = 0.0f, offset_e = 0.0f, offset_d = 0.0f;
 
         if (my_id_ >= 0 && static_cast<size_t>(my_id_) < x_formation_.size()) {
-            // FIX: Make mapping consistent
-            offset_e = static_cast<float>(x_formation_[my_id_]); // Correct: x_formation -> East
-            offset_n = static_cast<float>(y_formation_[my_id_]); // Correct: y_formation -> North
+            // FIX: Make mapping consistent (chosen: x_formation -> East, y_formation -> North)
+            offset_e = static_cast<float>(x_formation_[my_id_]); // East
+            offset_n = static_cast<float>(y_formation_[my_id_]); // North
             offset_d = static_cast<float>(z_formation_[my_id_]);
         }
-        
-        formation_center_pose.x -= offset_n; // North
-        formation_center_pose.y -= offset_e; // East
-        formation_center_pose.z -= offset_d; // Down
+
+        // Apply offsets consistently: subtract East from x, North from y
+        formation_center_pose.x -= offset_e; // East
+        formation_center_pose.y -= offset_n; // North
+        formation_center_pose.z -= offset_d; // Down (or according to sign conv)
+
+        RCLCPP_DEBUG(this->get_logger(), "[pose_cb][leader] id=%d pose=(%.3f,%.3f,%.3f) off_e=%.3f off_n=%.3f off_d=%.3f -> center=(%.3f,%.3f,%.3f)",
+                     my_id_, my_current_pose_.x, my_current_pose_.y, my_current_pose_.z, offset_e, offset_n, offset_d,
+                     formation_center_pose.x, formation_center_pose.y, formation_center_pose.z);
 
         self_position_publisher_->publish(formation_center_pose);
     } else {
@@ -224,13 +230,14 @@ void SwarmAgent::leader_logic() {
 
         // FIX #2: Takeoff target is now relative to the current position's Z value,
         // which makes it robust against variations in the initial spawning height.
-        takeoff_setpoint.position = {my_current_pose_.x, my_current_pose_.y, my_current_pose_.z - 1.0f}; 
+        // Keep the original sign convention: PX4 often uses NED where down is positive; here we preserve behavior
+        takeoff_setpoint.position = {my_current_pose_.x, my_current_pose_.y, my_current_pose_.z - 1.0f};
         takeoff_setpoint.yaw = 0.0;
 
-        RCLCPP_INFO(this->get_logger(), "Leader %d initial pose: x=%.2f, y=%.2f, z=%.2f", 
+        RCLCPP_INFO(this->get_logger(), "Leader %d initial pose: x=%.2f, y=%.2f, z=%.2f",
                     my_id_ + 1, my_current_pose_.x, my_current_pose_.y, my_current_pose_.z);
 
-        RCLCPP_INFO(this->get_logger(), "Leader %d takeoff setpoint: x=%.2f, y=%.2f, z=%.2f", 
+        RCLCPP_INFO(this->get_logger(), "Leader %d takeoff setpoint: x=%.2f, y=%.2f, z=%.2f",
                     my_id_ + 1, takeoff_setpoint.position[0], takeoff_setpoint.position[1], takeoff_setpoint.position[2]);
 
         double dist = std::hypot(my_current_pose_.x - takeoff_setpoint.position[0],
@@ -277,24 +284,26 @@ void SwarmAgent::leader_logic() {
     }
 }
 
-
 // In SwarmAgent::writeWP
 void SwarmAgent::writeWP(const size_t idx) {
-    // ... (previous code) ...
-    float offset_n = 0.0f, offset_e = 0.0f, offset_d = 0.0f;
+    float offset_e = 0.0f, offset_n = 0.0f, offset_d = 0.0f;
     if (my_id_ >= 0 && static_cast<size_t>(my_id_) < x_formation_.size()) {
-        // FIX: Make mapping consistent
-        offset_e = static_cast<float>(x_formation_[my_id_]); // Correct: x_formation -> East
-        offset_n = static_cast<float>(y_formation_[my_id_]); // Correct: y_formation -> North
+        // FIX: Make mapping consistent (x_formation -> East, y_formation -> North)
+        offset_e = static_cast<float>(x_formation_[my_id_]); // East
+        offset_n = static_cast<float>(y_formation_[my_id_]); // North
         offset_d = static_cast<float>(z_formation_[my_id_]);
     }
 
+    // Use coord(idx, "x") as base X (East), coord(idx, "y") as base Y (North)
     leader_waypoint_.position = {
-        static_cast<float>(coord(idx, "y") + offset_n), // North
-        static_cast<float>(coord(idx, "x") + offset_e), // East
-        static_cast<float>(coord(idx, "z") + offset_d)  // Down
+        static_cast<float>(coord(idx, "x") + offset_e), // East (X)
+        static_cast<float>(coord(idx, "y") + offset_n), // North (Y)
+        static_cast<float>(coord(idx, "z") + offset_d)  // Z
     };
     leader_waypoint_.yaw = static_cast<float>(coord(idx, "yaw"));
+
+    RCLCPP_DEBUG(this->get_logger(), "[writeWP] idx=%zu offset_e=%.3f offset_n=%.3f offset_d=%.3f -> wp=(%.3f, %.3f, %.3f) yaw=%.3f",
+                 idx, offset_e, offset_n, offset_d, leader_waypoint_.position[0], leader_waypoint_.position[1], leader_waypoint_.position[2], leader_waypoint_.yaw);
 }
 
 double SwarmAgent::coord(const size_t idx, const std::string &var) {
@@ -313,20 +322,27 @@ void SwarmAgent::follower_logic() {
     if (pose_received_ && leader_pose_received_) {
         publish_offboard_control_mode(CONTROL::POSITION);
 
-        float offset_n = 0.0f, offset_e = 0.0f, offset_d = 0.0f;
+        float offset_e = 0.0f, offset_n = 0.0f, offset_d = 0.0f;
         if (my_id_ >= 0 && static_cast<size_t>(my_id_) < x_formation_.size()) {
+            // Unified mapping
             offset_e = static_cast<float>(x_formation_[my_id_]);
             offset_n = static_cast<float>(y_formation_[my_id_]);
             offset_d = static_cast<float>(z_formation_[my_id_]);
         }
-        
+
+        // Apply offsets to leader actual position consistently: X+offset_e, Y+offset_n, Z+offset_d
         setpoint.position = {
             leader_actual_position_.x + 0.0,
             leader_actual_position_.y + 0.0,
-            leader_actual_position_.z + offset_d + -2.0
+            leader_actual_position_.z + -1.0
         };
         setpoint.yaw = leader_actual_position_.heading;
-        
+
+        RCLCPP_DEBUG(this->get_logger(), "[follower_logic] id=%d leader=(%.3f,%.3f,%.3f) off=(%.3f,%.3f,%.3f) set=(%.3f,%.3f,%.3f)",
+                     my_id_, leader_actual_position_.x, leader_actual_position_.y, leader_actual_position_.z,
+                     offset_e, offset_n, offset_d,
+                     setpoint.position[0], setpoint.position[1], setpoint.position[2]);
+
     } else {
         publish_offboard_control_mode(CONTROL::POSITION);
         setpoint.position = {my_current_pose_.x, my_current_pose_.y, my_current_pose_.z};
