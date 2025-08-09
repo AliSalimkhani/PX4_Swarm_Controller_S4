@@ -63,7 +63,7 @@ sudo ldconfig /usr/local/lib/
    ```
 - سپس این ریپازیتوری رو در  ```ros2_ws/src/S4``` کلون کنبد و اسم آن را به ```px4_swarm_controller``` تغییر بدهید.
   ```shell
-  cd ros2_ws/src
+  cd ros2_ws/src/S4
   git clone https://github.com/AliSalimkhani/PX4_Swarm_Controller_S4.git
   mv PX4_Swarm_Controller_S4 px4_swarm_controller
   ```
