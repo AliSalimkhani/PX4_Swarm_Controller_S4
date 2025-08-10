@@ -118,3 +118,6 @@ ros2 service call /disarm_leader std_srvs/srv/Trigger
 ```
 
 ۲- با حذف فیزیکی پهپاد در شبیه ساز
+
+
+### ویدیوی اجرای سناریو را از این [لینک](https://drive.google.com/file/d/1gHe1KzhkQBPXjn70YhlDvls9rS6gomHj/view?usp=drive_link) تماشا کنید.
